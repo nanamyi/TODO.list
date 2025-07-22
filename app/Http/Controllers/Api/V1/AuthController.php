@@ -3,29 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\Plan; // Pastikan nama model sesuai PSR-4 (huruf besar di awal)
+use App\Models\Plan; 
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str; // untuk password random saat OAuth
+use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 
-/**
- * Controller Auth API (Register, Login, Me, Logout, OAuth Google)
- *
- * Catatan perbaikan utama dari kode kamu sebelumnya:
- * ---------------------------------------------------
- * 1. Typo `frist()` -> `first()`.
- * 2. Typo teks JSON: "massage" -> "message", "Delfault" -> "Default", dll.
- * 3. Gunakan model `Plan` (huruf besar) bukan `plan`.
- * 4. Di `login()`, setelah `Auth::attempt()` nggak perlu query ulang user; cukup `Auth::user()`.
- * 5. Di `me()`, gunakan `Auth::user()` (huruf besar) bukan `auth::user()`.
- * 6. Di `oAuthCallback()`, email user baru salah (pakai `$existingUser`), seharusnya email dari Google.
- * 7. Tangani kondisi jika plan default tidak ditemukan.
- * 8. Pastikan password di-hash (bcrypt/Hash::make). Saat OAuth, buat password random karena user nggak isi password.
- * 9. Kembalikan response konsisten (key JSON & status code).
- */
 class AuthController extends Controller
 {
     /**
