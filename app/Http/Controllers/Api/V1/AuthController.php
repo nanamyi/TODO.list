@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\Plan; 
+use App\Models\Plan;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,9 +13,7 @@ use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller
 {
-    /**
-     * Register user baru.
-     */
+
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -28,7 +26,6 @@ class AuthController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
-        // Ambil plan Free sebagai default
         $freePlan = Plan::where('name', 'Free')->first();
         if (!$freePlan) {
             return response()->json(['message' => 'Default plan not found.'], 500);
@@ -41,7 +38,6 @@ class AuthController extends Controller
             'plan_id' => $freePlan->id,
         ]);
 
-        // Buat token Sanctum
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
@@ -72,11 +68,9 @@ class AuthController extends Controller
             ], 401);
         }
 
-        // Ambil user yang sedang login
         /** @var \App\Models\User $user */
         $user = Auth::user();
 
-        // Buat token baru
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
@@ -86,17 +80,11 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * Info user yang sedang login (berdasarkan token).
-     */
     public function me()
     {
         return response()->json(Auth::user());
     }
 
-    /**
-     * Logout (hapus token akses saat ini).
-     */
     public function logout(Request $request)
     {
         $token = $request->user()->currentAccessToken();
@@ -106,35 +94,24 @@ class AuthController extends Controller
         return response()->json(['message' => 'Successfully logged out.']);
     }
 
-    /**
-     * Generate URL redirect ke Google OAuth.
-     */
+
     public function oAuthUrl()
     {
-        // getTargetUrl() ambil URL redirect tanpa melakukan redirect langsung
         $url = Socialite::driver('google')->stateless()->redirect()->getTargetUrl();
         return response()->json(['url' => $url]);
     }
 
-    /**
-     * Callback dari Google OAuth.
-     */
     public function oAuthCallback(Request $request)
     {
-        // Ambil data user dari Google
         $googleUser = Socialite::driver('google')->stateless()->user();
-
-        // Cek apakah user sudah ada berdasarkan email Google
         $existingUser = User::where('email', $googleUser->getEmail())->first();
 
         if ($existingUser) {
-            // Update avatar jika ada perubahan
             $existingUser->update([
                 'avatar' => $googleUser->avatar ?? $googleUser->getAvatar(),
             ]);
 
             $token = $existingUser->createToken('auth_token')->plainTextToken;
-
             return response()->json([
                 'message' => 'Login successful.',
                 'user' => $existingUser,
@@ -142,7 +119,7 @@ class AuthController extends Controller
             ]);
         }
 
-        // Jika user belum ada, buat baru dengan plan Free
+
         $freePlan = Plan::where('name', 'Free')->first();
         if (!$freePlan) {
             return response()->json(['message' => 'Default plan not found.'], 500);
@@ -150,8 +127,7 @@ class AuthController extends Controller
 
         $newUser = User::create([
             'name' => $googleUser->getName() ?: $googleUser->getNickname(),
-            'email' => $googleUser->getEmail(), // <-- perbaikan: tadinya salah pakai $existingUser
-            // Password random karena user OAuth tidak input password; sesuaikan kolom jika nullable
+            'email' => $googleUser->getEmail(),
             'password' => bcrypt(Str::random(32)),
             'plan_id' => $freePlan->id,
             'avatar' => $googleUser->getAvatar(),
