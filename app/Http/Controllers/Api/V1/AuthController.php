@@ -3,137 +3,181 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\plan;
+use App\Models\Plan; // Pastikan nama model sesuai PSR-4 (huruf besar di awal)
 use App\Models\User;
-use GuzzleHttp\Psr7\Message;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Auth;
-use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str; // untuk password random saat OAuth
+use Laravel\Socialite\Facades\Socialite;
 
-
-
-
-
+/**
+ * Controller Auth API (Register, Login, Me, Logout, OAuth Google)
+ *
+ * Catatan perbaikan utama dari kode kamu sebelumnya:
+ * ---------------------------------------------------
+ * 1. Typo `frist()` -> `first()`.
+ * 2. Typo teks JSON: "massage" -> "message", "Delfault" -> "Default", dll.
+ * 3. Gunakan model `Plan` (huruf besar) bukan `plan`.
+ * 4. Di `login()`, setelah `Auth::attempt()` nggak perlu query ulang user; cukup `Auth::user()`.
+ * 5. Di `me()`, gunakan `Auth::user()` (huruf besar) bukan `auth::user()`.
+ * 6. Di `oAuthCallback()`, email user baru salah (pakai `$existingUser`), seharusnya email dari Google.
+ * 7. Tangani kondisi jika plan default tidak ditemukan.
+ * 8. Pastikan password di-hash (bcrypt/Hash::make). Saat OAuth, buat password random karena user nggak isi password.
+ * 9. Kembalikan response konsisten (key JSON & status code).
+ */
 class AuthController extends Controller
 {
-    public function register (Request $request){
+    /**
+     * Register user baru.
+     */
+    public function register(Request $request)
+    {
         $validator = Validator::make($request->all(), [
-            'name'=> 'required|string|max:255',
-            'email'=> 'required|string|email|max:255|unique:users',
-            'password'=> 'required|string|min:8',
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8',
         ]);
 
-        if ($validator->fails()){
+        if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
 
-        //mengambil plan free sebagai delfault saat registrasi
-        $freePlan = plan::where('name', 'Free')->frist();
+        // Ambil plan Free sebagai default
+        $freePlan = Plan::where('name', 'Free')->first();
         if (!$freePlan) {
-            return response()->json(['message' => 'Delfault plan not found.'], 500);
+            return response()->json(['message' => 'Default plan not found.'], 500);
         }
 
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
-            'password' => bcrypt($request->password),
-            'plan_id' => $freePlan->id, //Assign default plan
+            'password' => bcrypt($request->password), // Hash password
+            'plan_id' => $freePlan->id,
         ]);
 
+        // Buat token Sanctum
         $token = $user->createToken('auth_token')->plainTextToken;
+
         return response()->json([
-            'massage' => 'User created successfully',
-            'user'=> $user,
-            'token'=>$token
+            'message' => 'User created successfully.',
+            'user' => $user,
+            'token' => $token,
         ], 201);
-
-
     }
 
-    public function login (Request $request){
+    /**
+     * Login user.
+     */
+    public function login(Request $request)
+    {
         $validator = Validator::make($request->all(), [
-
-            'email'=> 'required|string|email',
-            'password'=> 'required|string',
+            'email' => 'required|string|email',
+            'password' => 'required|string',
         ]);
 
-        if ($validator->fails()){
+        if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
 
-       if (!Auth::attempt($request->only('email','password'))){
-              return response()->json([
-             'message'=> 'Invalid login details'
-         ], 401);
+        // Coba login
+        if (!Auth::attempt($request->only('email', 'password'))) {
+            return response()->json([
+                'message' => 'Invalid login details.'
+            ], 401);
         }
 
-        $user = User::where('email', $request->email)->first();
-         $token = $user->createToken('auth_token')->plainTextToken;
+        // Ambil user yang sedang login
+        /** @var \App\Models\User $user */
+        $user = Auth::user();
+
+        // Buat token baru
+        $token = $user->createToken('auth_token')->plainTextToken;
+
         return response()->json([
-            'massage' => 'Login successfully',
-            'user'=> $user,
-            'token'=>$token
+            'message' => 'Login successful.',
+            'user' => $user,
+            'token' => $token,
         ]);
-
-
-
     }
 
-    public function me(){
-        return response()->json(auth::user());
+    /**
+     * Info user yang sedang login (berdasarkan token).
+     */
+    public function me()
+    {
+        return response()->json(Auth::user());
     }
 
-    public function logout(Request $request){
-        $request->user()->currentAccessToken()->delete();
-        return response()->json(['message' => 'successfully loged out']);
+    /**
+     * Logout (hapus token akses saat ini).
+     */
+    public function logout(Request $request)
+    {
+        $token = $request->user()->currentAccessToken();
+        if ($token) {
+            $token->delete();
+        }
+        return response()->json(['message' => 'Successfully logged out.']);
     }
 
+    /**
+     * Generate URL redirect ke Google OAuth.
+     */
     public function oAuthUrl()
     {
-        /** @var \Laravel\Socialite\Two\GoogleProvider $google */
+        // getTargetUrl() ambil URL redirect tanpa melakukan redirect langsung
         $url = Socialite::driver('google')->stateless()->redirect()->getTargetUrl();
         return response()->json(['url' => $url]);
     }
 
-    public function oAuthCallback(Request $request){
+    /**
+     * Callback dari Google OAuth.
+     */
+    public function oAuthCallback(Request $request)
+    {
+        // Ambil data user dari Google
+        $googleUser = Socialite::driver('google')->stateless()->user();
 
-        $user = Socialite::driver('google')->stateless()->user();
-        //dd['OAuth callback received' => $user]);
-        $existingUser = User::where('email', $user->getEmail())->first();
+        // Cek apakah user sudah ada berdasarkan email Google
+        $existingUser = User::where('email', $googleUser->getEmail())->first();
+
         if ($existingUser) {
-            $token = $existingUser->createToken('auth_token')->plainTextToken;
+            // Update avatar jika ada perubahan
             $existingUser->update([
-                'avatar' => $user->avatar ?? $user->getAvatar()
+                'avatar' => $googleUser->avatar ?? $googleUser->getAvatar(),
             ]);
+
+            $token = $existingUser->createToken('auth_token')->plainTextToken;
+
             return response()->json([
-                'message' => 'login seccessful',
+                'message' => 'Login successful.',
                 'user' => $existingUser,
-                'token' =>$token,
+                'token' => $token,
             ]);
-        } else {
-            $freePlan = plan::where('name', 'Free')->first();
-            if (!$freePlan){
-                return response()->json(['message' => 'Delfault plan not found.'], 500);
-                //dd($freePlan->id);
-            }
-
-            $newUser = User::create([
-                'name' => $user->getName(),
-                'email' => $existingUser,
-                'password' => null,
-                'plan_id' => $freePlan->id,
-                'avatar' => $user->getAvatar()
-            ]);
-
-            $token = $newUser->createToken('auth_token')->plainTextToken;
-            return response()->json([
-                'message' => 'User created and logged in succesddfully',
-                'user' => $newUser,
-                'token' =>$token,
-            ], 201);
         }
+
+        // Jika user belum ada, buat baru dengan plan Free
+        $freePlan = Plan::where('name', 'Free')->first();
+        if (!$freePlan) {
+            return response()->json(['message' => 'Default plan not found.'], 500);
+        }
+
+        $newUser = User::create([
+            'name' => $googleUser->getName() ?: $googleUser->getNickname(),
+            'email' => $googleUser->getEmail(), // <-- perbaikan: tadinya salah pakai $existingUser
+            // Password random karena user OAuth tidak input password; sesuaikan kolom jika nullable
+            'password' => bcrypt(Str::random(32)),
+            'plan_id' => $freePlan->id,
+            'avatar' => $googleUser->getAvatar(),
+        ]);
+
+        $token = $newUser->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'User created and logged in successfully.',
+            'user' => $newUser,
+            'token' => $token,
+        ], 201);
     }
-
 }
-
